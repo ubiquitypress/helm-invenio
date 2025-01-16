@@ -83,7 +83,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- end }}
 {{- end -}}
 
-#######################     RabbitMQ password secret     #######################
+#######################     RabbitMQ connection configuration     #######################
 {{/*
   This template renders the name of the secret that stores the password for RabbitMQ.
 */}}
@@ -95,7 +95,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ username     ##########################
 {{/*
   This template renders the username for accessing RabbitMQ.
 */}}
@@ -103,11 +102,10 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.rabbitmq.enabled }}
     {{- required "Missing .Values.rabbitmq.auth.username" .Values.rabbitmq.auth.username -}}
   {{- else }}
-    {{- required "Missing .Values.rabbitmqExternal.username" .Values.rabbitmqExternal.username -}}
+    {{- required "Missing .Values.rabbitmqExternal.username" (tpl .Values.rabbitmqExternal.username .) -}}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ password     ##########################
 {{/*
   This template renders the password for accessing RabbitMQ.
 */}}
@@ -119,7 +117,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ AMQP port     ##########################
 {{/*
   This template renders the AMQP port number for RabbitMQ.
 */}}
