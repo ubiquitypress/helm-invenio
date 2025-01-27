@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "invenio.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker-beat
+  annotations:
+    {{- include "invenio.annotations" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -18,7 +20,8 @@ spec:
     spec:
       containers:
       - name: worker-beat
-        image: {{ required "Missing .Values.worker.image" .Values.worker.image }}
+        image: {{ include "invenio.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
         command: [
           "/bin/bash",
           "-c",
@@ -49,10 +52,7 @@ spec:
         env:
         - name: TZ
           value: {{ required "Missing .Values.global.timezone" .Values.global.timezone }}
-        - name: INVENIO_BROKER_URL
-          value: {{ include "invenio.rabbitmq.uri" . }}
-        - name: INVENIO_CELERY_BROKER_URL
-          value: {{ include "invenio.rabbitmq.uri" . }}
+        {{- include "invenio.config.queue" . | nindent 8 }}
         {{- include "invenio.config.database" . | nindent 8}}
         {{- with .Values.workerBeat.extraEnvVars }}
         {{- toYaml . | nindent 8 }}
@@ -118,7 +118,7 @@ spec:
         configMap:
           name: "{{ include "invenio.fullname" . }}-vocabularies"
       {{- end }}
-      {{- if .Values.worker.imagePullSecret }}
+      {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
-      - name: {{ .Values.worker.imagePullSecret }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}

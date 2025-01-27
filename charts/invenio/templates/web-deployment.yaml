@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "invenio.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
+  annotations:
+    {{- include "invenio.annotations" . | nindent 4 }}
 spec:
   replicas: {{ .Values.web.replicas }}
   selector:
@@ -19,7 +21,8 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.web.terminationGracePeriodSeconds }}
       containers:
       - name: web
-        image: {{ required "Missing .Values.web.image" .Values.web.image }}
+        image: {{ include "invenio.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
         command: [
             "/bin/bash",
             "-c",
@@ -36,10 +39,7 @@ spec:
         env:
         - name: TZ
           value: {{ required "Missing .Values.global.timezone" .Values.global.timezone }}
-        - name: INVENIO_BROKER_URL
-          value: {{ include "invenio.rabbitmq.uri" . }}
-        - name: INVENIO_CELERY_BROKER_URL
-          value: {{ include "invenio.rabbitmq.uri" . }}
+        {{- include "invenio.config.queue" . | nindent 8 }}
         {{- include "invenio.config.database" . | nindent 8 }}
         {{- with .Values.web.extraEnvVars }}
         {{-  toYaml . | nindent 8 }}
@@ -194,7 +194,8 @@ spec:
       initContainers:
         # copy assets from uwsgi to nginx
         - name: copy-web-assets
-          image: {{ required "Missing .Values.web.image" .Values.web.image }}
+          image: {{ include "invenio.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           command: [
               "/bin/bash",
               "-c",
@@ -270,7 +271,7 @@ spec:
         configMap:
           name: "{{ include "invenio.fullname" . }}-vocabularies"
       {{- end }}
-      {{- if .Values.web.imagePullSecret }}
+      {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
-        - name: {{ .Values.web.imagePullSecret }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}

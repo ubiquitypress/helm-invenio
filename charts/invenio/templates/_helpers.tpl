@@ -50,12 +50,41 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{/*
+Default annotations
+- ConfigMap SHA annotaions to allow for reload in case of change.
+*/}}
+{{- define "invenio.annotations" -}}
+checksum/invenio-configmap: {{ include (print $.Template.BasePath "/invenio-configmap.yaml") . | sha256sum }}
+{{- end }}
+
+{{/*
+Return the proper Invenio image name
+*/}}
+{{- define "invenio.image" -}}
+{{- $registryName := .Values.image.registry -}}
+{{- $repositoryName := .Values.image.repository -}}
+{{- $separator := ":" -}}
+{{- $termination := .Values.image.tag | default .Chart.AppVersion | toString -}}
+
+{{- if .Values.image.digest }}
+  {{- $separator = "@" -}}
+  {{- $termination = .Values.image.digest | toString -}}
+{{- end -}}
+
+{{- if $registryName }}
+  {{- printf "%s/%s%s%s" $registryName $repositoryName $separator $termination -}}
+{{- else -}}
+  {{- printf "%s%s%s"  $repositoryName $separator $termination -}}
+{{- end -}}
+{{- end -}}
+
 ###########################     Invenio hostname     ###########################
 {{/*
   This template renders the hostname for Invenio.
 */}}
 {{- define "invenio.hostname" -}}
-  {{- required "Missing .Values.invenio.hostname" .Values.invenio.hostname }}
+  {{- required "Missing .Values.invenio.hostname" (tpl .Values.invenio.hostname .) }}
 {{- end -}}
 
 ############################     Redis Hostname     ############################
@@ -66,7 +95,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.redis.enabled }}
     {{- printf "%s-master" (include "common.names.fullname" .Subcharts.redis) }}
   {{- else }}
-      {{- required "Missing .Values.redisExternal.hostname" .Values.redisExternal.hostname }}
+    {{- required "Missing .Values.redisExternal.hostname" .Values.redisExternal.hostname }}
   {{- end }}
 {{- end -}}
 
@@ -118,29 +147,49 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
+  Get the database password secret name
+*/}}
+{{- define "invenio.rabbitmq.secretName" -}}
+  {{- if .Values.rabbitmq.enabled -}}
+    {{- required "Missing .Values.rabbitmq.auth.existingPasswordSecret" (tpl .Values.rabbitmq.auth.existingPasswordSecret .) -}}
+  {{- else -}}
+    {{- required "Missing .Values.rabbitmqExternal.existingSecret" (tpl .Values.rabbitmqExternal.existingSecret .) -}}
+  {{- end -}}
+{{- end -}}
+
+{{/*
+  Get the database password secret key
+*/}}
+{{- define "invenio.rabbitmq.secretKey" -}}
+  {{- if .Values.rabbitmq.enabled -}}
+    {{- required "Missing .Values.rabbitmq.auth.existingSecretPasswordKey" .Values.rabbitmq.auth.existingSecretPasswordKey -}}
+  {{- else -}}
+    {{- required "Missing .Values.rabbitmqExternal.existingSecretPasswordKey" .Values.rabbitmqExternal.existingSecretPasswordKey -}}
+  {{- end -}}
+{{- end -}}
+
+{{/*
   This template renders the AMQP port number for RabbitMQ.
 */}}
 {{- define "invenio.rabbitmq.amqpPort" -}}
   {{- if .Values.rabbitmq.enabled }}
-    {{- required "Missing .Values.rabbitmq.service.ports.amqp" .Values.rabbitmq.service.ports.amqp -}}
+    {{- required "Missing .Values.rabbitmq.service.ports.amqp" .Values.rabbitmq.service.ports.amqp | quote -}}
   {{- else }}
-    {{- required "Missing .Values.rabbitmqExternal.amqpPort" .Values.rabbitmqExternal.amqpPort -}}
+    {{- required "Missing .Values.rabbitmqExternal.amqpPort" (tpl .Values.rabbitmqExternal.amqpPort .) | quote -}}
   {{- end }}
 {{- end -}}
 
-#######################     RabbitMQ management port     #######################
 {{/*
   This template renders the management port number for RabbitMQ.
 */}}
 {{- define "invenio.rabbitmq.managementPort" -}}
   {{- if .Values.rabbitmq.enabled }}
-    {{- required "Missing .Values.rabbitmq.service.ports.manager" .Values.rabbitmq.service.ports.manager -}}
+    {{- required "Missing .Values.rabbitmq.service.ports.manager" .Values.rabbitmq.service.ports.manager | quote -}}
   {{- else }}
-    {{- required "Missing .Values.rabbitmqExternal.managementPort" .Values.rabbitmqExternal.managementPort -}}
+    {{- required "Missing .Values.rabbitmqExternal.managementPort" (tpl .Values.rabbitmqExternal.managementPort .) | quote -}}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ hostname     ##########################
 {{/*
   This template renders the hostname for RabbitMQ.
 */}}
@@ -148,11 +197,10 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.rabbitmq.enabled }}
     {{- include "common.names.fullname" .Subcharts.rabbitmq -}}
   {{- else }}
-    {{- required "Missing .Values.rabbitmqExternal.hostname" .Values.rabbitmqExternal.hostname }}
+    {{- required "Missing .Values.rabbitmqExternal.hostname" (tpl .Values.rabbitmqExternal.hostname .) }}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ protocol     ##########################
 {{/*
   This template renders the protocol for RabbitMQ.
 */}}
@@ -164,7 +212,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- end }}
 {{- end -}}
 
-##########################     RabbitMQ vhost     ##########################
 {{/*
   This template renders the vhost for RabbitMQ.
 */}}
@@ -172,25 +219,40 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.rabbitmq.enabled }}
     {{- "" }}
   {{- else }}
-    {{- required "Missing .Values.rabbitmqExternal.vhost" .Values.rabbitmqExternal.vhost }}
+    {{- required "Missing .Values.rabbitmqExternal.vhost" (tpl .Values.rabbitmqExternal.vhost .) }}
   {{- end }}
 {{- end -}}
 
-##########################     Celery broker URI     ##########################
 {{/*
-  This template renders the URI for connecting to RabbitMQ.
+  RabbitMQ connection env section. 
 */}}
-{{- define "invenio.rabbitmq.uri" -}}
-  {{- $username := (include "invenio.rabbitmq.username" .) -}}
-  {{- $password := (include "invenio.rabbitmq.password" .) -}}
-  {{- $port := (include "invenio.rabbitmq.amqpPort" .) -}}
-  {{- $hostname := (include "invenio.rabbitmq.hostname" .) -}}
-  {{- $protocol := (include "invenio.rabbitmq.protocol" .) -}}
-  {{- $vhost := (include "invenio.rabbitmq.vhost" .) -}}
-  {{- printf "%s://%s:%s@%s:%v/%s" $protocol $username $password $hostname $port $vhost}}
+{{- define "invenio.config.queue" -}}
+{{- $uri := "$(INVENIO_AMQP_BROKER_PROTOCOL)://$(INVENIO_AMQP_BROKER_USER):$(INVENIO_AMQP_BROKER_PASSWORD)@$(INVENIO_AMQP_BROKER_HOST):$(INVENIO_AMQP_BROKER_PORT)/$(INVENIO_AMQP_BROKER_VHOST)" -}}
+- name: INVENIO_AMQP_BROKER_USER
+  value: {{ include "invenio.rabbitmq.username" . }}
+- name: INVENIO_AMQP_BROKER_HOST
+  value: {{ include "invenio.rabbitmq.hostname" . }}
+- name: INVENIO_AMQP_BROKER_PORT
+  value: {{ include "invenio.rabbitmq.amqpPort" . }}
+- name: INVENIO_AMQP_BROKER_VHOST
+  value: {{ include "invenio.rabbitmq.vhost" . }}
+- name: INVENIO_AMQP_BROKER_PROTOCOL
+  value: {{ include "invenio.rabbitmq.protocol" . }}
+- name: INVENIO_AMQP_BROKER_PASSWORD
+{{- if or (and .Values.rabbitmq.enabled .Values.rabbitmq.auth.password) .Values.rabbitmqExternal.password }}
+  value: {{ include "invenio.rabbitmq.password" .  | quote }}
+{{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "invenio.rabbitmq.secretName" .}}
+      key: {{ include "invenio.rabbitmq.secretKey" .}}
+{{- end }}
+- name: INVENIO_BROKER_URL
+  value: {{ $uri}}
+- name: INVENIO_CELERY_BROKER_URL
+  value: {{ $uri}}
 {{- end -}}
 
-###########################     RabbitMQ API URI     ###########################
 {{/*
   This template renders the URI for RabbitMQ's API endpoint.
 */}}
@@ -278,7 +340,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.postgresql.enabled -}}
     {{- required "Missing .Values.postgresql.primary.service.ports.postgresql" (tpl .Values.postgresql.primary.service.ports.postgresql .) -}}
   {{- else -}}
-    {{- required "Missing .Values.postgresqlExternal.port" (tpl .Values.postgresqlExternal.port .) -}}
+    {{- required "Missing .Values.postgresqlExternal.port" (tpl .Values.postgresqlExternal.port .) | quote -}}
   {{- end -}}
 {{- end -}}
 
